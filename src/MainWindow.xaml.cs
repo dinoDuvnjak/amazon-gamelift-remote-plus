@@ -815,7 +815,8 @@ namespace GameLiftRemotePlus
                 cidr = customCidr;
             else
             {
-                string url = "http://bot.whatismyipaddress.com/";
+                //string url = "http://bot.whatismyipaddress.com/"; this API is down
+                string url = "https://api.ipify.org";
                 using (WebClient client = new WebClient())
                 {
                     ipAddress = client.DownloadString(url);

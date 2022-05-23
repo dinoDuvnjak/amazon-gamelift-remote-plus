@@ -4,6 +4,7 @@ obj/
 env/
 Debug/
 Release/
+src/KeyConvert/CLR.vcxproj
 
 # Visual Studio cache directory
 .vs/
@@ -33,3 +34,5 @@ src/AWSSDK.*.dll
 *.pem
 *.ppk
 
+#rider temp files
+src/.idea/*
