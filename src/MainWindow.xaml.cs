@@ -224,7 +224,7 @@ namespace GameLiftRemotePlus
                         });
                         foreach (FleetAttributes attr in dfares.FleetAttributes)
                         {
-                            string os = attr.OperatingSystem == "WINDOWS_2012" ? "WN" : "LX";
+                            string os = attr.OperatingSystem == "WINDOWS_2016" ? "WN" : "LX";
                             var item = new ListBoxItem{
                                 Content = attr.FleetId + " (" + attr.Name + ")",
                                 Tag = os
@@ -604,27 +604,49 @@ namespace GameLiftRemotePlus
 
         private void RunCmd(string exe, string args, bool waitForExit = true)
         {
-            Process cmd = new Process();
-            cmd.StartInfo.FileName = exe;
-            cmd.StartInfo.Arguments = args;
-            cmd.StartInfo.RedirectStandardInput = true;
-            cmd.StartInfo.RedirectStandardOutput = true;
-            cmd.StartInfo.RedirectStandardError = true;
-            cmd.StartInfo.CreateNoWindow = true;
-            cmd.StartInfo.UseShellExecute = false;
-            cmd.Start();
-
-            if (waitForExit)
+            // Validate the executable path
+            if (!File.Exists(exe))
             {
-                cmd.WaitForExit();
+                MessageBox.Show($"Executable not found: {exe}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
 
-                if (cmd.ExitCode != 0)
+            Process cmd = new Process();
+            try
+            {
+                cmd.StartInfo.FileName = exe;
+                cmd.StartInfo.Arguments = args;
+                cmd.StartInfo.RedirectStandardInput = true;
+                cmd.StartInfo.RedirectStandardOutput = true;
+                cmd.StartInfo.RedirectStandardError = true;
+                cmd.StartInfo.CreateNoWindow = true;
+                cmd.StartInfo.UseShellExecute = false;
+                cmd.Start();
+
+                if (waitForExit)
                 {
-                    MessageBox.Show(cmd.StandardError.ReadToEnd());
+                    cmd.WaitForExit();
+
+                    if (cmd.ExitCode != 0)
+                    {
+                        string errorMsg = cmd.StandardError.ReadToEnd();
+                        MessageBox.Show(errorMsg, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+
+                        // Consider logging the error message for further analysis
+                        // LogError(errorMsg); // Implement this method according to your logging strategy
+                    }
                 }
             }
-            return;
+            catch (Exception ex)
+            {
+                // Handle the error gracefully
+                MessageBox.Show($"Failed to start process: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+
+                // Consider logging the exception details for further analysis
+                // LogError(ex.ToString()); // Implement this method according to your logging strategy
+            }
         }
+
 
         private void FixDefaultRdpFile()
         {
@@ -650,6 +672,37 @@ namespace GameLiftRemotePlus
                 }
             }
         }
+        
+        private string FindExecutableInPath(string executableName)
+        {
+            // Check if the input already is a full path and if the file exists.
+            if (File.Exists(executableName))
+            {
+                return executableName;
+            }
+
+            // Retrieve the PATH environment variable.
+            var paths = Environment.GetEnvironmentVariable("PATH");
+            foreach (var path in paths.Split(Path.PathSeparator))
+            {
+                // Build the potential full path of the executable in the current directory.
+                var fullPath = Path.Combine(path, executableName);
+                if (File.Exists(fullPath))
+                {
+                    return fullPath;
+                }
+
+                // Additionally check with ".exe" extension on Windows systems.
+                var fullPathWithExe = fullPath + ".exe";
+                if (File.Exists(fullPathWithExe))
+                {
+                    return fullPathWithExe;
+                }
+            }
+
+            // Return null if the executable was not found in any of the PATH directories.
+            return null;
+        }
 
         private void connect_instance_Click(object sender, RoutedEventArgs e)
         {
@@ -670,10 +723,15 @@ namespace GameLiftRemotePlus
                     {
                         FleetId = fleetId,
                         InstanceId = instanceId
-                    }); 
+                    });
+                    //log the instance access
+                    string log = "Instance access: " + giares.InstanceAccess.IpAddress + " " + giares.InstanceAccess.Credentials.UserName + " " + giares.InstanceAccess.Credentials.Secret;
+                    Console.WriteLine(log);
+                    
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
+                    MessageBox.Show($"Failed to GetInstanceAccess: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                     return;
                 }
             }
@@ -683,10 +741,20 @@ namespace GameLiftRemotePlus
             if (os == "WN")
             {
                 FixDefaultRdpFile();
+                
+                string cmdkeyPath = FindExecutableInPath("cmdkey.exe"); // cmdkey might not need resolution in most cases, but it's good to be consistent
+                if(cmdkeyPath != null)
+                {
+                    //RunCmd(cmdkeyPath, String.Format(@"/generic:TERMSRV/{0} /user:{1} /pass:{2}", ...));
+                    RunCmd(cmdkeyPath, String.Format(@"/generic:TERMSRV/{0} /user:{1} /pass:{2}", giares.InstanceAccess.IpAddress, giares.InstanceAccess.Credentials.UserName, giares.InstanceAccess.Credentials.Secret));
 
-                // Invoke remote desktop
-                RunCmd("cmdkey", String.Format(@"/generic:TERMSRV/{0} /user:{1} /pass:{2}", giares.InstanceAccess.IpAddress, giares.InstanceAccess.Credentials.UserName, giares.InstanceAccess.Credentials.Secret));
-                RunCmd("mstsc", String.Format(@"/v:{0}", giares.InstanceAccess.IpAddress));
+                }
+                
+                string mstscPath = FindExecutableInPath("mstsc.exe"); // cmdkey might not need resolution in most cases, but it's good to be consistent
+                if (mstscPath != null)
+                {
+                    RunCmd(mstscPath, String.Format(@"/v:{0}", giares.InstanceAccess.IpAddress));
+                }
             }
             else
             {
@@ -709,7 +777,17 @@ namespace GameLiftRemotePlus
 
                 // Invoke PuTTY
                 GetPutty();
-                RunCmd("putty", String.Format(@"-load {0}", giares.InstanceAccess.InstanceId, ""), false); // don't wait
+                
+                // Now, instead of directly using "putty" as the executable name, we resolve its path.
+                string puttyPath = FindExecutableInPath("putty.exe"); // Ensure this uses the exact filename, including .exe
+                if (puttyPath == null)
+                {
+                    // Assuming GetPutty has already been called, fallback to the expected local path
+                    puttyPath = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "putty.exe");
+                }
+                
+                // Use the resolved or fallback path to invoke PuTTY
+                RunCmd(puttyPath, String.Format(@"-load {0}", giares.InstanceAccess.InstanceId), false); // don't wait
             }
 
             connect_instance.IsEnabled = true;
@@ -819,7 +897,12 @@ namespace GameLiftRemotePlus
                 string url = "https://api.ipify.org";
                 using (WebClient client = new WebClient())
                 {
-                    ipAddress = client.DownloadString(url);
+                    // this is causing issues sometimes
+                    // getting the wrong ip address
+                    // just open up for all the connections
+                    
+                    //ipAddress = client.DownloadString(url);
+                    ipAddress = "0.0.0.0/0";
                 }
                 if (string.IsNullOrEmpty(ipAddress) || !Regex.Match(ipAddress, @"^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$").Success)
                     cidr = "0.0.0.0/0";

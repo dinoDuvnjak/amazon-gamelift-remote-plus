@@ -92,3 +92,5 @@ GOTO STARTBUILD
 
 :STARTBUILD
 MSBUILD "%ABS_ROOT%\src\GameLiftRemotePlus.sln" /p:Configuration=Release /p:PlatformToolset=%PLATFORM_TOOLSET%
+
+
